@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Sensitive history files containing API keys
+migrated_prompt_history/
+
+# Scratch/debug scripts
+scratch/

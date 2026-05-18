@@ -29,30 +29,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Safety net: if loading hasn't resolved in 8 seconds, force it off.
-    const timeoutId = setTimeout(() => {
+    // Safety net: force loading=false after 5 seconds NO MATTER WHAT.
+    // CRITICAL: Do NOT cancel this before fetchUserProfile finishes —
+    // if that fetch hangs (slow network / bad Supabase key), this timer
+    // is the only thing that gets the user past the loading screen.
+    const safetyTimer = setTimeout(() => {
       setLoading(false);
-    }, 8000);
+    }, 5000);
 
     // onAuthStateChange is the single source of truth for auth state.
     // It fires INITIAL_SESSION on page load AND SIGNED_IN after login().
-    // DO NOT call fetchUserProfile() separately inside login() —
-    // that caused a race condition that blocked this handler and left
-    // the app stuck on "Signing in..." forever.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        clearTimeout(timeoutId);
         if (session?.user) {
           await fetchUserProfile(session.user);
+          // Only cancel the timer AFTER the profile fetch fully resolves.
+          clearTimeout(safetyTimer);
         } else {
           setUser(null);
           setLoading(false);
+          clearTimeout(safetyTimer);
         }
       }
     );
 
     return () => {
-      clearTimeout(timeoutId);
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
   }, []);
@@ -273,8 +275,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.warn("Server sign-out failed, clearing local session...", error);
+        await supabase.auth.signOut({ scope: 'local' });
+      }
+    } catch (err) {
+      console.error("Sign-out exception:", err);
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    } finally {
+      setUser(null);
+      setLoading(false);
+      window.location.hash = '#/login'; // Force navigation
+    }
   };
 
   if (loading) {
