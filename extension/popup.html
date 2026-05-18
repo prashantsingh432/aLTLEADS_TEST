@@ -1,0 +1,42 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AltLeads Prospect Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'primary': '#000000',
+              'secondary': '#DBEAFE',
+              'accent': '#009ee2',
+              'background': '#F3F4F6',
+              'surface': '#FFFFFF',
+              'text-primary': '#111827',
+              'text-secondary': '#4B5563',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+        body { width: 400px; min-height: 300px; max-height: 600px; }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client"
+      }
+    }
+    </script>
+</head>
+<body class="bg-background">
+    <div id="root"></div>
+    <script type="module" src="./popup.tsx"></script>
+</body>
+</html>

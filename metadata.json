@@ -1,0 +1,5 @@
+{
+  "name": "AltLeads Prospect Intelligence",
+  "description": "Internal prospect intelligence system for AltLeads agents and data team. Allows search, update, validation, and real-time contact requests.",
+  "requestFramePermissions": []
+}
