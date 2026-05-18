@@ -53,20 +53,71 @@ export const DataContext = createContext<DataContextType | undefined>(undefined)
 
 // Helper mapping functions to adapt Postgres snake_case to Frontend camelCase
 const mapProspectToClient = (p: any): Prospect => ({
-  ...p,
-  fullName: p.full_name,
-  companyName: p.company_name,
-  personalLinkedin: p.personal_linkedin,
+  id: p.id,
   teamId: p.team_id,
+  fullName: p.full_name || '',
+  firstName: p.first_name || '',
+  lastName: p.last_name || '',
+  designation: p.designation || '',
+  companyName: p.company_name || '',
+  companyIndustry: p.company_industry || '',
+  companySubIndustry: p.company_sub_industry || '',
+  companyEmployeeSize: p.company_employee_size || '',
+  companyCIN: p.company_cin || '',
+  website: p.website || '',
+  companyLinkedin: p.company_linkedin || '',
+  city: p.city || '',
+  state: p.state || '',
+  personalLinkedin: p.personal_linkedin || '',
+  workEmail: p.work_email || '',
+  workEmailDisposition: p.workEmailDisposition || 'Unverified',
+  contactNumber1: p.contact_number1 || '',
+  contactNumber1Disposition: p.contactNumber1Disposition || 'Unverified',
+  contactNumber2: p.contact_number2 || '',
+  contactNumber2Disposition: p.contactNumber2Disposition || 'Unverified',
+  contactNumber3: p.contact_number3 || '',
+  contactNumber3Disposition: p.contactNumber3Disposition || 'Unverified',
+  receptionNumber: p.reception_number || '',
+  receptionNumberDisposition: p.receptionNumberDisposition || 'Unverified',
+  remark: p.remark || '',
+  comments: p.comments || [],
   lastUpdated: new Date(p.last_updated),
-  createdBy: { uid: p.created_by_uid, email: p.created_by_email, name: p.created_by_name }
+  createdBy: { uid: p.created_by_uid || '', email: p.created_by_email || '', name: p.created_by_name || '' }
 });
 
-const mapProspectToDB = (p: any) => {
-  const data = { ...p, full_name: p.fullName, company_name: p.companyName, personal_linkedin: p.personalLinkedin, team_id: p.teamId };
-  delete data.fullName; delete data.companyName; delete data.personalLinkedin; delete data.teamId; delete data.createdBy; delete data.lastUpdated;
-  return data;
-};
+const mapProspectToDB = (p: any) => ({
+  id: p.id,
+  team_id: p.teamId,
+  full_name: p.fullName,
+  first_name: p.firstName,
+  last_name: p.lastName,
+  designation: p.designation,
+  company_name: p.companyName,
+  company_industry: p.companyIndustry,
+  company_sub_industry: p.companySubIndustry,
+  company_employee_size: p.companyEmployeeSize,
+  company_cin: p.companyCIN,
+  website: p.website,
+  company_linkedin: p.companyLinkedin,
+  city: p.city,
+  state: p.state,
+  personal_linkedin: p.personalLinkedin,
+  work_email: p.workEmail,
+  workEmailDisposition: p.workEmailDisposition,
+  contact_number1: p.contactNumber1,
+  contactNumber1Disposition: p.contactNumber1Disposition,
+  contact_number2: p.contactNumber2,
+  contactNumber2Disposition: p.contactNumber2Disposition,
+  contact_number3: p.contactNumber3,
+  contactNumber3Disposition: p.contactNumber3Disposition,
+  reception_number: p.receptionNumber,
+  receptionNumberDisposition: p.receptionNumberDisposition,
+  remark: p.remark,
+  comments: p.comments,
+  created_by_uid: p.createdBy?.uid,
+  created_by_email: p.createdBy?.email,
+  created_by_name: p.createdBy?.name,
+});
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -121,13 +172,59 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         supabase.from('credits').select('*')
       ]);
 
-      if (tData) setTeams(tData.map(d => ({ ...d, settingsVersion: d.settings_version, createdAt: new Date(d.created_at), updatedAt: new Date(d.updated_at) } as Team)));
-      if (aiData) setAiModels(aiData.map(d => ({ ...d, categories: d.categories || [], createdAt: new Date(d.created_at), updatedAt: new Date(d.updated_at) } as AIModel)));
+      if (tData) setTeams(tData.map(d => ({
+        id: d.id,
+        name: d.name,
+        description: d.description || '',
+        createdBy: d.created_by || '',
+        settingsVersion: d.settings_version || 1,
+        defaultApiKeys: d.default_api_keys || {},
+        defaultModelConfig: d.default_model_config || {},
+        defaultTemplates: d.default_templates || {},
+        defaultPrompts: d.default_prompts || {},
+        defaultSystemPrompt: d.default_system_prompt || '',
+        productIds: d.product_ids || [],
+        personaIds: d.persona_ids || [],
+        createdAt: new Date(d.created_at),
+        updatedAt: new Date(d.updated_at),
+      } as Team)));
+      if (aiData) setAiModels(aiData.map(d => ({ id: d.id, provider: d.provider, modelId: d.model_id, displayName: d.display_name, name: d.name, categories: d.categories || [], isDefault: d.is_default, isActive: d.is_active, createdAt: new Date(d.created_at), updatedAt: new Date(d.updated_at) } as AIModel)));
       if (uData) setUsers(uData.map(d => ({ ...d, teamId: d.team_id, createdAt: new Date(d.created_at) } as User)));
-      if (prodData) setProducts(prodData.map(d => ({ ...d, createdAt: new Date(d.created_at), updatedAt: new Date(d.updated_at) } as Product)));
-      if (persData) setPersonas(persData.map(d => ({ ...d, createdAt: new Date(d.created_at) } as Persona)));
+      if (prodData) setProducts(prodData.map(d => ({ ...d, teamId: d.team_id, teamIds: d.team_ids, painPoints: d.pain_points || [], clients: d.clients || [], competitors: d.competitors || [], isActive: d.is_active, createdBy: d.created_by, companyName: d.company_name, createdAt: new Date(d.created_at), updatedAt: new Date(d.updated_at) } as Product)));
+      if (persData) setPersonas(persData.map(d => ({ ...d, teamId: d.team_id, teamIds: d.team_ids, scoreBoost: d.score_boost, createdBy: d.created_by, createdAt: new Date(d.created_at) } as Persona)));
       if (prosData) setProspects(prosData.map(mapProspectToClient));
-      if (reqData) setContactRequests(reqData.map(d => ({ ...d, prospectId: d.prospect_id, createdAt: new Date(d.created_at), updatedAt: new Date(d.updated_at) } as ContactRequest)));
+      if (reqData) setContactRequests(reqData.map(d => ({
+        id: d.id,
+        teamId: d.team_id,
+        prospectId: d.prospect_id,
+        prospectName: d.prospect_name || '',
+        companyName: d.company_name || '',
+        linkedinUrl: d.linkedin_url || '',
+        sourceHint: d.source_hint || '',
+        requestedBy: d.requested_by || '',
+        status: d.status,
+        fulfilledBy: d.fulfilled_by || '',
+        foundFirstName: d.found_first_name || '',
+        foundLastName: d.found_last_name || '',
+        foundDesignation: d.found_designation || '',
+        foundEmail: d.found_email || '',
+        foundPhone: d.found_phone || '',
+        foundPhone2: d.found_phone2 || '',
+        foundPhone3: d.found_phone3 || '',
+        foundReceptionPhone: d.found_reception_phone || '',
+        foundCompanyIndustry: d.found_company_industry || '',
+        foundCompanySubIndustry: d.found_company_sub_industry || '',
+        foundCompanyEmployeeSize: d.found_company_employee_size || '',
+        foundCompanyCIN: d.found_company_cin || '',
+        foundWebsite: d.found_website || '',
+        foundCompanyLinkedin: d.found_company_linkedin || '',
+        foundPersonalLinkedin: d.found_personal_linkedin || '',
+        foundCity: d.found_city || '',
+        foundState: d.found_state || '',
+        foundRemark: d.found_remark || '',
+        createdAt: new Date(d.created_at),
+        updatedAt: new Date(d.updated_at)
+      } as ContactRequest)));
       if (viewData) setProfileViews(viewData.map(d => ({ ...d, prospectId: d.prospect_id, agentId: d.agent_id, timestamp: new Date(d.timestamp) } as ProfileView)));
       
       if (credData) {
@@ -170,7 +267,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const balanceToSet = customBalance !== undefined ? customBalance : planDetails.credits;
       
-      const { data } = await supabase.from('credits').select('user_id').eq('user_id', userId).single();
+      const { data } = await supabase.from('credits').select('user_id').eq('user_id', userId).maybeSingle();
 
       if (data) {
           await supabase.from('credits').update({
@@ -263,11 +360,51 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [prospects]);
 
   const createContactRequest = useCallback(async (newRequest: Omit<ContactRequest, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await supabase.from('contact_requests').insert([{ prospect_id: newRequest.prospectId, status: newRequest.status }]);
+    const requestedBy = typeof newRequest.requestedBy === 'string'
+      ? { name: newRequest.requestedBy }
+      : newRequest.requestedBy;
+    await supabase.from('contact_requests').insert([{
+      prospect_id: newRequest.prospectId || null,
+      prospect_name: newRequest.prospectName || '',
+      company_name: newRequest.companyName || '',
+      linkedin_url: newRequest.linkedinUrl || '',
+      source_hint: newRequest.sourceHint || '',
+      requested_by: requestedBy,
+      status: newRequest.status,
+    }]);
   }, []);
-  
+
   const updateContactRequest = useCallback(async (updatedRequest: ContactRequest) => {
-    await supabase.from('contact_requests').update({ status: updatedRequest.status, updated_at: new Date().toISOString() }).eq('id', updatedRequest.id);
+    const fulfilledBy = typeof updatedRequest.fulfilledBy === 'string'
+      ? { name: updatedRequest.fulfilledBy }
+      : (updatedRequest.fulfilledBy || null);
+    await supabase.from('contact_requests').update({
+      status: updatedRequest.status,
+      prospect_name: updatedRequest.prospectName,
+      company_name: updatedRequest.companyName,
+      linkedin_url: updatedRequest.linkedinUrl,
+      source_hint: updatedRequest.sourceHint,
+      fulfilled_by: fulfilledBy,
+      found_first_name: updatedRequest.foundFirstName || '',
+      found_last_name: updatedRequest.foundLastName || '',
+      found_designation: updatedRequest.foundDesignation || '',
+      found_email: updatedRequest.foundEmail || '',
+      found_phone: updatedRequest.foundPhone || '',
+      found_phone2: updatedRequest.foundPhone2 || '',
+      found_phone3: updatedRequest.foundPhone3 || '',
+      found_reception_phone: updatedRequest.foundReceptionPhone || '',
+      found_company_industry: updatedRequest.foundCompanyIndustry || '',
+      found_company_sub_industry: updatedRequest.foundCompanySubIndustry || '',
+      found_company_employee_size: updatedRequest.foundCompanyEmployeeSize || '',
+      found_company_cin: updatedRequest.foundCompanyCIN || '',
+      found_website: updatedRequest.foundWebsite || '',
+      found_company_linkedin: updatedRequest.foundCompanyLinkedin || '',
+      found_personal_linkedin: updatedRequest.foundPersonalLinkedin || '',
+      found_city: updatedRequest.foundCity || '',
+      found_state: updatedRequest.foundState || '',
+      found_remark: updatedRequest.foundRemark || '',
+      updated_at: new Date().toISOString()
+    }).eq('id', updatedRequest.id);
   }, []);
   
   const deleteContactRequest = useCallback(async (id: string) => { await supabase.from('contact_requests').delete().eq('id', id); }, []);
@@ -281,8 +418,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
   
   const markValidation = useCallback(async (prospectId: string, field: keyof Prospect, disposition: Disposition) => {
-    // Map the camelCase field back to snake_case if necessary
-    const fieldMap: Record<string, string> = { personalLinkedin: 'personal_linkedin', companyName: 'company_name', fullName: 'full_name' };
+    // Disposition fields kept as camelCase in DB (quoted columns); others snake_case
+    const fieldMap: Record<string, string> = {
+      workEmailDisposition: 'workEmailDisposition',
+      contactNumber1Disposition: 'contactNumber1Disposition',
+      contactNumber2Disposition: 'contactNumber2Disposition',
+      contactNumber3Disposition: 'contactNumber3Disposition',
+      receptionNumberDisposition: 'receptionNumberDisposition',
+    };
     const dbField = fieldMap[field as string] || field;
     await supabase.from('prospects').update({ [dbField]: disposition, last_updated: new Date().toISOString() }).eq('id', prospectId);
   }, []);
@@ -291,44 +434,136 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const runV5Migration = useCallback(async () => { /* Left blank */ }, []);
   
   const addTeam = useCallback(async (team: Omit<Team, 'id' | 'createdAt' | 'updatedAt'>) => {
-      const { data } = await supabase.from('teams').insert([{ name: team.name, settings_version: 1 }]).select().single();
+      const { data } = await supabase.from('teams').insert([{
+        name: team.name,
+        description: team.description || '',
+        created_by: team.createdBy || '',
+        settings_version: 1,
+        default_api_keys: team.defaultApiKeys || {},
+        default_model_config: team.defaultModelConfig || {},
+        default_templates: team.defaultTemplates || {},
+        default_prompts: team.defaultPrompts || {},
+        default_system_prompt: team.defaultSystemPrompt || '',
+        product_ids: team.productIds || [],
+        persona_ids: team.personaIds || [],
+      }]).select().single();
       return data?.id;
   }, []);
-  
+
   const updateTeam = useCallback(async (team: Partial<Team> & { id: string }) => {
-      await supabase.from('teams').update({ name: team.name, settings_version: Date.now(), updated_at: new Date().toISOString() }).eq('id', team.id);
+      await supabase.from('teams').update({
+        name: team.name,
+        description: team.description,
+        settings_version: (team.settingsVersion || 0) + 1,
+        default_api_keys: team.defaultApiKeys,
+        default_model_config: team.defaultModelConfig,
+        default_templates: team.defaultTemplates,
+        default_prompts: team.defaultPrompts,
+        default_system_prompt: team.defaultSystemPrompt,
+        product_ids: team.productIds,
+        persona_ids: team.personaIds,
+        updated_at: new Date().toISOString()
+      }).eq('id', team.id);
   }, []);
-  
-  const addProduct = useCallback(async (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => { 
-      await supabase.from('products').insert([{ name: product.name, description: product.description }]); 
+
+  const addProduct = useCallback(async (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => {
+      await supabase.from('products').insert([{
+        name: product.name,
+        tagline: product.tagline || '',
+        pain_points: product.painPoints || [],
+        cta: product.cta || '',
+        company_name: product.companyName || '',
+        scale: product.scale || '',
+        clients: product.clients || [],
+        competitors: product.competitors || [],
+        is_active: product.isActive ?? true,
+        team_id: product.teamId || '',
+        team_ids: product.teamIds || [],
+        created_by: product.createdBy || '',
+      }]);
   }, []);
-  
+
   const updateProduct = useCallback(async (product: Partial<Product> & { id: string }) => {
-      await supabase.from('products').update({ name: product.name, description: product.description, updated_at: new Date().toISOString() }).eq('id', product.id);
+      await supabase.from('products').update({
+        name: product.name,
+        tagline: product.tagline,
+        pain_points: product.painPoints,
+        cta: product.cta,
+        company_name: product.companyName,
+        scale: product.scale,
+        clients: product.clients,
+        competitors: product.competitors,
+        is_active: product.isActive,
+        team_id: product.teamId,
+        team_ids: product.teamIds,
+        updated_at: new Date().toISOString()
+      }).eq('id', product.id);
   }, []);
-  
+
   const deleteProduct = useCallback(async (id: string) => { await supabase.from('products').delete().eq('id', id); }, []);
-  
-  const addPersona = useCallback(async (persona: Omit<Persona, 'id' | 'createdAt'>) => { 
-      await supabase.from('personas').insert([{ name: persona.name, description: persona.description }]); 
+
+  const addPersona = useCallback(async (persona: Omit<Persona, 'id' | 'createdAt'>) => {
+      await supabase.from('personas').insert([{
+        name: persona.name,
+        titles: persona.titles || [],
+        keywords: persona.keywords || [],
+        score_boost: persona.scoreBoost || 0,
+        team_id: persona.teamId || '',
+        team_ids: persona.teamIds || [],
+        created_by: persona.createdBy || '',
+      }]);
   }, []);
-  
+
   const updatePersona = useCallback(async (persona: Partial<Persona> & { id: string }) => {
-      await supabase.from('personas').update({ name: persona.name, description: persona.description }).eq('id', persona.id);
+      await supabase.from('personas').update({
+        name: persona.name,
+        titles: persona.titles,
+        keywords: persona.keywords,
+        score_boost: persona.scoreBoost,
+        team_id: persona.teamId,
+        team_ids: persona.teamIds,
+      }).eq('id', persona.id);
   }, []);
-  
+
   const deletePersona = useCallback(async (id: string) => { await supabase.from('personas').delete().eq('id', id); }, []);
-  
+
   const addAIModel = useCallback(async (model: Omit<AIModel, 'createdAt' | 'updatedAt'>) => {
-       await supabase.from('ai_models').insert([{ id: model.id, name: model.name, categories: model.categories }]);
+       await supabase.from('ai_models').insert([{
+         id: model.id,
+         name: model.displayName || model.id,
+         provider: model.provider,
+         model_id: model.modelId,
+         display_name: model.displayName,
+         categories: model.categories,
+         is_default: model.isDefault ?? false,
+         is_active: model.isActive ?? true,
+       }]);
   }, []);
-  
+
   const addAIModelsBulk = useCallback(async (models: Omit<AIModel, 'createdAt' | 'updatedAt'>[]) => {
-      await supabase.from('ai_models').upsert(models.map(m => ({ id: m.id, name: m.name, categories: m.categories })));
+      await supabase.from('ai_models').upsert(models.map(m => ({
+        id: m.id,
+        name: m.displayName || m.id,
+        provider: m.provider,
+        model_id: m.modelId,
+        display_name: m.displayName,
+        categories: m.categories,
+        is_default: m.isDefault ?? false,
+        is_active: m.isActive ?? true,
+      })));
   }, []);
-  
+
   const updateAIModel = useCallback(async (model: Partial<AIModel> & { id: string }) => {
-      await supabase.from('ai_models').update({ name: model.name, categories: model.categories, updated_at: new Date().toISOString() }).eq('id', model.id);
+      await supabase.from('ai_models').update({
+        name: model.displayName || model.name,
+        provider: model.provider,
+        model_id: model.modelId,
+        display_name: model.displayName,
+        categories: model.categories,
+        is_default: model.isDefault,
+        is_active: model.isActive,
+        updated_at: new Date().toISOString()
+      }).eq('id', model.id);
   }, []);
   
   const deleteAIModel = useCallback(async (id: string) => { await supabase.from('ai_models').delete().eq('id', id); }, []);
