@@ -14,13 +14,25 @@ const Sidebar: React.FC = () => {
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-6 bg-white/5 border-b border-gray-800">
         {!collapsed && (
-          <div className="flex items-center space-x-2">
-            <span className="text-xl font-black tracking-tighter text-white">
+          <div className="flex flex-col py-1">
+            <span className="text-xl font-black tracking-tighter text-white leading-none">
               <span className="text-accent">Alt</span>Leads
             </span>
+            {user?.role === Role.SUPER_ADMIN && (
+              <span className="text-[8px] font-black tracking-widest text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 rounded px-1.5 py-0.5 mt-1.5 shadow-[0_0_8px_rgba(34,211,238,0.15)] animate-pulse uppercase max-w-[130px] text-center">
+                ⚡ ROOT DEVELOPER
+              </span>
+            )}
           </div>
         )}
-        {collapsed && <span className="text-xl font-bold text-accent w-full text-center">AL</span>}
+        {collapsed && (
+          <div className="flex flex-col items-center">
+            <span className="text-xl font-bold text-accent">AL</span>
+            {user?.role === Role.SUPER_ADMIN && (
+              <span className="text-[7px] text-cyan-400 font-extrabold animate-pulse uppercase mt-0.5">DEV</span>
+            )}
+          </div>
+        )}
         
         <button 
             onClick={() => setCollapsed(!collapsed)}
@@ -36,7 +48,7 @@ const Sidebar: React.FC = () => {
       <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
         {NAV_LINKS.map((link) => {
           // Access Control: Check if the user's role is in the allowed list
-          if (link.roles && user && !link.roles.includes(user.role)) {
+          if (link.roles && user && user.role !== Role.SUPER_ADMIN && !link.roles.includes(user.role)) {
               return null;
           }
           

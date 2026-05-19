@@ -33,7 +33,7 @@ const AdminProductsPage: React.FC = () => {
     const [clientsText, setClientsText] = useState('');
     const [competitorsText, setCompetitorsText] = useState('');
 
-    if (!user || (user.role !== Role.ADMIN && user.role !== Role.DATA_TEAM)) {
+    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN && user.role !== Role.DATA_TEAM)) {
         return <Navigate to="/" />;
     }
 

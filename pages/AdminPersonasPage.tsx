@@ -27,7 +27,7 @@ const AdminPersonasPage: React.FC = () => {
     const [titlesText, setTitlesText] = useState('');
     const [keywordsText, setKeywordsText] = useState('');
 
-    if (!user || (user.role !== Role.ADMIN && user.role !== Role.DATA_TEAM)) {
+    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN && user.role !== Role.DATA_TEAM)) {
         return <Navigate to="/" />;
     }
 

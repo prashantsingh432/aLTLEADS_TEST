@@ -34,7 +34,7 @@ const AdminDatabasePage: React.FC = () => {
         contactNumber1Disposition: true, website: true, state: true
     });
 
-    if (!user || user.role !== Role.ADMIN) {
+    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)) {
         return <Navigate to="/" />;
     }
 

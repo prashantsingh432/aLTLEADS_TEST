@@ -71,7 +71,7 @@ const AdminTeamPage: React.FC = () => {
         }
     }, [selectedTeamId, teams, products, personas]);
 
-    if (!user || user.role !== Role.ADMIN) {
+    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)) {
         return <Navigate to="/" />;
     }
 

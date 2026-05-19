@@ -8,6 +8,8 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+import { isSuperAdmin as checkSuperAdmin, isAdmin as checkAdmin, canDeleteUser } from '../lib/permissions';
 
 const SettingsPage: React.FC = () => {
   const { users, seedDatabase, addProspectsBulk, runV5Migration, teams, products, aiModels, allUserCredits, currentUserCredits, updateUserPlan, updateUserRole } = useData();
@@ -60,7 +62,8 @@ const SettingsPage: React.FC = () => {
   const [manualBalance, setManualBalance] = useState<number>(0);
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
-  const isAdmin = currentUser?.role === Role.ADMIN; 
+  const isSuperAdmin = checkSuperAdmin(currentUser);
+  const isAdmin = checkAdmin(currentUser);
 
   // Initialize My Settings from Current User
   useEffect(() => {
@@ -145,6 +148,26 @@ const SettingsPage: React.FC = () => {
           alert(`Update failed: ${e.message}`);
       } finally {
           setLoading(false);
+      }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+      const targetUser = users.find(u => u.id === userId);
+      if (!canDeleteUser(currentUser, targetUser || null)) {
+          alert("Access Denied: You are not authorized to delete this user.");
+          return;
+      }
+      if (window.confirm(`Are you sure you want to permanently delete user "${userName}"? This will completely remove them from the database. This action is irreversible.`)) {
+          setLoading(true);
+          try {
+              const { error } = await supabase.from('users').delete().eq('id', userId);
+              if (error) throw error;
+              alert(`User "${userName}" has been successfully deleted.`);
+          } catch (e: any) {
+              alert(`Failed to delete user: ${e.message}`);
+          } finally {
+              setLoading(false);
+          }
       }
   };
 
@@ -298,7 +321,7 @@ const SettingsPage: React.FC = () => {
 
       <div className="flex border-b border-gray-200 overflow-x-auto">
          <TabButton id="my-settings" label="My Extension Preferences" />
-         {isAdmin && <TabButton id="add-user" label="Add User" badge={users.filter(u => u.role !== Role.ADMIN && u.role !== Role.PENDING).length} />}
+         {isAdmin && <TabButton id="add-user" label="Add User" badge={users.filter(u => u.role !== Role.PENDING).length} />}
          {isAdmin && <TabButton id="admin-users" label="User Directory & Control" />}
          {isAdmin && <TabButton id="admin-data" label="Global System Data" />}
       </div>
@@ -511,6 +534,8 @@ const SettingsPage: React.FC = () => {
                                       {[
                                           { value: Role.AGENT, label: 'Agent', desc: 'Research prospects, manage CRM data' },
                                           { value: Role.DATA_TEAM, label: 'Data Team', desc: 'Data entry, fulfil contact requests' },
+                                          ...(isAdmin ? [{ value: Role.ADMIN, label: 'Admin', desc: 'Manage users, teams, and models' }] : []),
+                                          ...(isSuperAdmin ? [{ value: Role.SUPER_ADMIN, label: 'Super Admin', desc: 'Root access to everything' }] : [])
                                       ].map(r => (
                                           <label key={r.value} className={`flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all ${
                                               newUserRole === r.value ? 'border-accent bg-blue-50/70 ring-1 ring-accent' : 'border-gray-200 hover:bg-gray-50'
@@ -554,10 +579,10 @@ const SettingsPage: React.FC = () => {
                   <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                       <div>
                           <h2 className="font-black text-gray-900">Active CRM Users</h2>
-                          <p className="text-xs text-gray-400 mt-0.5">{users.filter(u => u.role !== Role.ADMIN && u.role !== Role.PENDING).length} users with CRM access</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{users.filter(u => u.role !== Role.PENDING).length} users with CRM access</p>
                       </div>
                   </div>
-                  {users.filter(u => u.role !== Role.ADMIN && u.role !== Role.PENDING).length === 0 ? (
+                  {users.filter(u => u.role !== Role.PENDING).length === 0 ? (
                       <div className="py-16 text-center">
                           <div className="w-14 h-14 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-3">
                               <svg className="w-7 h-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -579,7 +604,7 @@ const SettingsPage: React.FC = () => {
                               </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-50">
-                              {users.filter(u => u.role !== Role.ADMIN && u.role !== Role.PENDING).map(u => (
+                              {users.filter(u => u.role !== Role.PENDING).map(u => (
                                   <tr key={u.id} className="hover:bg-blue-50/20 transition-colors">
                                       <td className="px-6 py-4">
                                           <div className="flex items-center gap-3">
@@ -589,13 +614,18 @@ const SettingsPage: React.FC = () => {
                                               <div>
                                                   <div className="text-sm font-bold text-gray-900">{u.name}</div>
                                                   <div className="text-xs text-gray-400">{u.email}</div>
+                                                  {u.createdAt && (
+                                                      <div className="text-[10px] text-gray-400 mt-0.5">Joined {new Date(u.createdAt).toLocaleDateString()}</div>
+                                                  )}
                                               </div>
                                           </div>
                                       </td>
                                       <td className="px-6 py-4">
                                           <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-widest border ${
-                                              u.role === Role.DATA_TEAM ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-600 border-gray-200'
-                                          }`}>{u.role}</span>
+                                              u.role === Role.SUPER_ADMIN ? 'bg-cyan-50 text-cyan-700 border-cyan-100 shadow-[0_0_8px_rgba(6,182,212,0.15)] font-extrabold animate-pulse' :
+                                              u.role === Role.ADMIN ? 'bg-purple-50 text-purple-700 border-purple-100' :
+                                              u.role === Role.DATA_TEAM ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-700 border-gray-200'
+                                          }`}>{u.role === Role.SUPER_ADMIN ? '⚡ SUPER ADMIN' : u.role}</span>
                                       </td>
                                       <td className="px-6 py-4 text-sm text-gray-500">
                                           {teams.find(t => t.id === u.teamId)?.name || <span className="text-orange-400 italic text-xs">Unassigned</span>}
@@ -606,37 +636,42 @@ const SettingsPage: React.FC = () => {
                                           }`}>{u.status || 'Active'}</span>
                                       </td>
                                       <td className="px-6 py-4 text-right space-x-2">
-                                          <button onClick={() => openEditUserModal(u)} className="text-xs font-bold text-accent hover:underline px-3 py-1.5 rounded hover:bg-blue-50 transition-all">Edit</button>
-                                          {u.status === 'Active' ? (
-                                              <button onClick={async () => {
-                                                  if (window.confirm(`Are you sure you want to deactivate ${u.name}? They will lose access to the CRM.`)) {
-                                                      setLoading(true);
-                                                      try {
-                                                          await updateUserByAdmin(u.id, { status: 'Inactive' });
-                                                          alert('User has been deactivated.');
-                                                          window.location.reload(); // Refresh to update list
-                                                      } catch (e: any) {
-                                                          alert('Failed to deactivate: ' + e.message);
-                                                      } finally {
-                                                          setLoading(false);
-                                                      }
-                                                  }
-                                              }} className="text-xs font-bold text-red-600 hover:underline px-3 py-1.5 rounded hover:bg-red-50 transition-all">Deactivate</button>
-                                          ) : (
-                                              <button onClick={async () => {
-                                                  if (window.confirm(`Are you sure you want to reactivate ${u.name}?`)) {
-                                                      setLoading(true);
-                                                      try {
-                                                          await updateUserByAdmin(u.id, { status: 'Active' });
-                                                          alert('User has been reactivated.');
-                                                          window.location.reload(); // Refresh to update list
-                                                      } catch (e: any) {
-                                                          alert('Failed to reactivate: ' + e.message);
-                                                      } finally {
-                                                          setLoading(false);
-                                                      }
-                                                  }
-                                              }} className="text-xs font-bold text-green-600 hover:underline px-3 py-1.5 rounded hover:bg-green-50 transition-all">Reactivate</button>
+                                          {!(u.role === Role.SUPER_ADMIN && !isSuperAdmin) && (
+                                              <button onClick={() => openEditUserModal(u)} className="text-xs font-bold text-accent hover:underline px-3 py-1.5 rounded hover:bg-blue-50 transition-all">Edit</button>
+                                          )}
+                                          {(u.id !== currentUser?.id || isSuperAdmin) && !(u.role === Role.SUPER_ADMIN && !isSuperAdmin) && (
+                                              <>
+                                                  {u.status === 'Active' ? (
+                                                      <button onClick={async () => {
+                                                          if (window.confirm(`Are you sure you want to deactivate ${u.name}? They will lose access to the CRM.`)) {
+                                                              setLoading(true);
+                                                              try {
+                                                                  await updateUserByAdmin(u.id, { status: 'Inactive' });
+                                                                  alert('User has been deactivated.');
+                                                              } catch (e: any) {
+                                                                  alert('Failed to deactivate: ' + e.message);
+                                                              } finally {
+                                                                  setLoading(false);
+                                                              }
+                                                          }
+                                                      }} className="text-xs font-bold text-red-600 hover:underline px-3 py-1.5 rounded hover:bg-red-50 transition-all">Deactivate</button>
+                                                  ) : (
+                                                      <button onClick={async () => {
+                                                          if (window.confirm(`Are you sure you want to reactivate ${u.name}?`)) {
+                                                              setLoading(true);
+                                                              try {
+                                                                  await updateUserByAdmin(u.id, { status: 'Active' });
+                                                                  alert('User has been reactivated.');
+                                                              } catch (e: any) {
+                                                                  alert('Failed to reactivate: ' + e.message);
+                                                              } finally {
+                                                                  setLoading(false);
+                                                              }
+                                                          }
+                                                      }} className="text-xs font-bold text-green-600 hover:underline px-3 py-1.5 rounded hover:bg-green-50 transition-all">Reactivate</button>
+                                                  )}
+                                                  <button onClick={() => handleDeleteUser(u.id, u.name)} className="text-xs font-bold text-red-600 hover:underline px-3 py-1.5 rounded hover:bg-red-50 transition-all">Delete</button>
+                                              </>
                                           )}
                                       </td>
                                   </tr>
@@ -726,13 +761,17 @@ const SettingsPage: React.FC = () => {
                                         <td className="px-6 py-4">
                                             <div className="font-bold text-gray-900">{u.name}</div>
                                             <div className="text-xs text-gray-400">{u.email}</div>
+                                            {u.createdAt && (
+                                                <div className="text-[10px] text-gray-400 mt-0.5">Joined {new Date(u.createdAt).toLocaleDateString()}</div>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`text-[10px] px-2 py-1 font-black rounded uppercase tracking-widest border ${
+                                                u.role === Role.SUPER_ADMIN ? 'bg-cyan-50 text-cyan-700 border-cyan-100 shadow-[0_0_8px_rgba(6,182,212,0.15)] font-extrabold animate-pulse' :
                                                 u.role === Role.ADMIN ? 'bg-purple-50 text-purple-700 border-purple-100' :
                                                 u.role === Role.DATA_TEAM ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-700 border-gray-100'
                                             }`}>
-                                                {u.role}
+                                                {u.role === Role.SUPER_ADMIN ? '⚡ SUPER ADMIN' : u.role}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-500">
@@ -753,8 +792,13 @@ const SettingsPage: React.FC = () => {
                                                 <button onClick={() => openPlanModal(u)} className="text-xs bg-accent text-white px-2 py-1 rounded hover:bg-accent-hover">Init Plan</button>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button onClick={() => openEditUserModal(u)} className="text-xs font-bold text-accent hover:underline px-3 py-1.5 rounded hover:bg-white transition-all">Manage Account</button>
+                                        <td className="px-6 py-4 text-right space-x-2">
+                                            {!(u.role === Role.SUPER_ADMIN && !isSuperAdmin) && (
+                                                <button onClick={() => openEditUserModal(u)} className="text-xs font-bold text-accent hover:underline px-3 py-1.5 rounded hover:bg-white transition-all">Manage Account</button>
+                                            )}
+                                            {(u.id !== currentUser?.id || isSuperAdmin) && !(u.role === Role.SUPER_ADMIN && !isSuperAdmin) && (
+                                                <button onClick={() => handleDeleteUser(u.id, u.name)} className="text-xs font-bold text-red-600 hover:underline px-3 py-1.5 rounded hover:bg-red-50 transition-all">Delete</button>
+                                            )}
                                         </td>
                                     </tr>
                                 );
@@ -826,13 +870,26 @@ const SettingsPage: React.FC = () => {
                       <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">System Role</label>
-                            <select value={editUserRole} onChange={(e) => setEditUserRole(e.target.value as Role)} className="block w-full border border-gray-300 rounded-md p-2.5 text-sm focus:ring-accent">
-                                {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
+                            <select 
+                                value={editUserRole} 
+                                onChange={(e) => setEditUserRole(e.target.value as Role)} 
+                                disabled={editingUser?.id === currentUser?.id && !isSuperAdmin}
+                                className="block w-full border border-gray-300 rounded-md p-2.5 text-sm focus:ring-accent disabled:opacity-60 disabled:bg-gray-100"
+                            >
+                                {Object.values(Role).map(r => {
+                                    if (r === Role.SUPER_ADMIN && !isSuperAdmin) return null;
+                                    return <option key={r} value={r}>{r}</option>;
+                                })}
                             </select>
                           </div>
                           <div>
                             <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">User Status</label>
-                            <select value={editUserStatus} onChange={(e) => setEditUserStatus(e.target.value as any)} className="block w-full border border-gray-300 rounded-md p-2.5 text-sm focus:ring-accent">
+                            <select 
+                                value={editUserStatus} 
+                                onChange={(e) => setEditUserStatus(e.target.value as any)} 
+                                disabled={editingUser?.id === currentUser?.id && !isSuperAdmin}
+                                className="block w-full border border-gray-300 rounded-md p-2.5 text-sm focus:ring-accent disabled:opacity-60 disabled:bg-gray-100"
+                            >
                                 <option value="Active">Active</option>
                                 <option value="Inactive">Inactive</option>
                             </select>

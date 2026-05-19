@@ -27,7 +27,7 @@ const AdminModelsPage: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // STRICT ADMIN CHECK
-    if (!user || user.role !== Role.ADMIN) {
+    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)) {
         return <Navigate to="/" />;
     }
 
