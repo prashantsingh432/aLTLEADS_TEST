@@ -1,6 +1,5 @@
 
 import React from 'react';
-// Use v6 components
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './hooks/useAuth';
@@ -22,22 +21,49 @@ import AdminModelsPage from './pages/AdminModelsPage';
 import AdminTeamPage from './pages/AdminTeamPage';
 import NotFoundPage from './pages/NotFoundPage';
 
+/**
+ * ProtectedRoute – renders children ONLY when the auth state is known AND the
+ * user is authenticated.  While hydration is still in progress (loading=true)
+ * we render null so the router never makes a premature redirect decision.
+ */
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  // Session is still being restored — don't redirect yet
+  if (loading) return null;
+
   if (!user) {
     return <Navigate to="/login" replace />;
   }
+
   return <>{children}</>;
 };
 
 const AppRoutes: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/*" element={
-        !user ? <Navigate to="/login" replace /> : (
+      {/*
+       * /login route:
+       * - While loading → render nothing (prevents flicker to login before hydration)
+       * - Once loaded → redirect authenticated users to app root
+       */}
+      <Route
+        path="/login"
+        element={
+          loading
+            ? null
+            : user
+              ? <Navigate to="/" replace />
+              : <LoginPage />
+        }
+      />
+
+      {/* All protected routes */}
+      <Route
+        path="/*"
+        element={
           <ProtectedRoute>
             <Layout>
               <Routes>
@@ -58,8 +84,8 @@ const AppRoutes: React.FC = () => {
               </Routes>
             </Layout>
           </ProtectedRoute>
-        )
-      } />
+        }
+      />
     </Routes>
   );
 };

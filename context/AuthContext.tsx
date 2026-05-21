@@ -1,16 +1,17 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useRef } from 'react';
 import { User, Role } from '../types';
 import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   createUserByAdmin: (
-    email: string, 
-    password: string, 
-    name: string, 
-    role: Role, 
+    email: string,
+    password: string,
+    name: string,
+    role: Role,
     teamId?: string,
     apiKeys?: User['apiKeys'],
     modelConfig?: User['modelConfig']
@@ -19,151 +20,276 @@ interface AuthContextType {
   resetUserPassword: (email: string) => Promise<void>;
   devLogin: () => void;
   logout: () => void;
-  loading: boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEV_STORAGE_KEY = 'altleads-dev-user';
+
+/** Map a DB row + Supabase auth user into the app's User shape. */
+function mapDbRowToUser(supabaseUser: any, row: any): User {
+  return {
+    id: supabaseUser.id,
+    name: row.name || supabaseUser.email?.split('@')[0] || 'User',
+    email: supabaseUser.email || '',
+    role: row.role || Role.AGENT,
+    status: row.status || 'Active',
+    teamId: row.team_id,
+    apiKeys: row.api_keys || {},
+    modelConfig: row.model_config || {},
+    preferences: row.preferences || {},
+    createdAt: new Date(row.created_at),
+  };
+}
+
+/** Safely parse a localStorage value; returns null on any failure. */
+function safeParseStorage<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    localStorage.removeItem(key); // nuke corrupt data
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  // loading=true blocks ProtectedRoute from making any redirect decisions
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Safety net: force loading=false after 5 seconds NO MATTER WHAT.
-    // CRITICAL: Do NOT cancel this before fetchUserProfile finishes —
-    // if that fetch hangs (slow network / bad Supabase key), this timer
-    // is the only thing that gets the user past the loading screen.
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
+  /**
+   * hydrationDone ref tracks whether the FIRST auth resolve has happened.
+   * The onAuthStateChange listener is IGNORED until hydration completes to
+   * prevent the initial SIGNED_IN event from triggering a duplicate profile fetch.
+   */
+  const hydrationDone = useRef(false);
 
-    // onAuthStateChange is the single source of truth for auth state.
-    // It fires INITIAL_SESSION on page load AND SIGNED_IN after login().
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session?.user) {
-          await fetchUserProfile(session.user);
-          // Only cancel the timer AFTER the profile fetch fully resolves.
-          clearTimeout(safetyTimer);
-        } else {
-          setUser(null);
-          setLoading(false);
-          clearTimeout(safetyTimer);
-        }
-      }
-    );
+  // ── Profile fetcher (single authority) ─────────────────────────────────────
+  const fetchAndSetProfile = async (supabaseUser: any): Promise<void> => {
+    // Individual timeout so a slow Supabase query never hangs the spinner
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
 
-    return () => {
-      clearTimeout(safetyTimer);
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  const fetchUserProfile = async (supabaseUser: any) => {
     try {
-      const { data: userData, error } = await supabase
+      const fetchPromise = supabase
         .from('users')
         .select('*')
         .eq('id', supabaseUser.id)
         .maybeSingle();
 
-      if (userData) {
-        if ((userData as any).status === 'Inactive') {
-            await supabase.auth.signOut();
-            setUser(null);
-            alert("Your account has been deactivated. Please contact the administrator.");
-            setLoading(false);
-            return;
-        }
+      const result = await Promise.race([fetchPromise, timeoutPromise]);
 
-        setUser({
-          id: supabaseUser.id,
-          name: userData.name || supabaseUser.email?.split('@')[0] || 'User',
-          email: supabaseUser.email || '',
-          role: userData.role || Role.AGENT,
-          status: userData.status || 'Active',
-          teamId: userData.team_id,
-          apiKeys:     userData.api_keys     || {},
-          modelConfig: userData.model_config || {},
-          preferences: userData.preferences  || {},
-          createdAt: new Date(userData.created_at)
-        });
-      } else {
-        // Automatically create the user document in Postgres if it doesn't exist
-        const newUserObj = {
-          id: supabaseUser.id,
-          name: supabaseUser.email?.split('@')[0] || 'User',
-          email: supabaseUser.email || '',
-          role: Role.AGENT
-        };
-
-        const { error: insertError } = await supabase
-          .from('users')
-          .insert([newUserObj]);
-
-        if (insertError) console.error("Error creating user profile in Postgres:", insertError);
-
-        setUser({
-          ...newUserObj,
-          status: 'Active',
-          createdAt: new Date()
-        });
+      // If timed out, result is null
+      if (!result) {
+        console.warn('[AUTH] Profile fetch timed out — preserving existing session if available');
+        setUser(prev => prev || mapDbRowToUser(supabaseUser, {}));
+        return;
       }
-    } catch (error) {
-      console.error("Error fetching user profile:", error);
+
+      const { data: row, error } = result as Awaited<typeof fetchPromise>;
+
+      if (error) {
+        console.warn('[AUTH] Profile fetch error:', error.message);
+        setUser(prev => prev || mapDbRowToUser(supabaseUser, {}));
+        return;
+      }
+
+      if (row) {
+        if (row.status === 'Inactive') {
+          console.warn('[AUTH] Account is Inactive. Signing out.');
+          await supabase.auth.signOut({ scope: 'local' });
+          setUser(null);
+          alert('Your account has been deactivated. Please contact the administrator.');
+          return;
+        }
+        setUser(mapDbRowToUser(supabaseUser, row));
+      } else {
+        // Auto-provision a default profile for new/migrated users
+        console.warn('[AUTH] No DB row found — creating default profile');
+        const newRow = {
+          id: supabaseUser.id,
+          email: supabaseUser.email || '',
+          name: supabaseUser.email?.split('@')[0] || 'User',
+          role: Role.AGENT,
+          status: 'Active',
+        };
+        const { error: insertErr } = await supabase.from('users').insert([newRow]);
+        if (insertErr) console.error('[AUTH] Auto-provision insert error:', insertErr.message);
+        setUser({ ...newRow, createdAt: new Date() } as User);
+      }
+    } catch (err: any) {
+      console.error('[AUTH] fetchAndSetProfile exception:', err?.message);
       setUser(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async (email: string, password: string) => {
-    console.log('[AUTH] Attempting login for:', email);
+  // ── Mount: single hydration pass ───────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    // Hard safety net — 3 s ceiling. Prevents eternal spinner if Supabase
+    // is completely unreachable (e.g. no network, wrong key, expired token).
+    const safetyTimer = setTimeout(() => {
+      console.warn('[AUTH] Safety timeout — forcing session resolve to false');
+      setLoading(false);
+      hydrationDone.current = true;
+    }, 3000);
+
+    const hydrate = async () => {
+      console.log('[AUTH] Hydration start');
+
+      // ── 1. Developer bypass (highest priority) ────────────────────────────
+      const savedDev = safeParseStorage<User>(DEV_STORAGE_KEY);
+      if (savedDev) {
+        console.log('[AUTH] Dev bypass session restored');
+        if (!cancelled) {
+          setUser({ ...savedDev, createdAt: new Date(savedDev.createdAt) });
+          setLoading(false);
+          hydrationDone.current = true;
+          clearTimeout(safetyTimer);
+        }
+        return;
+      }
+
+      // ── 2. Supabase session restore ───────────────────────────────────────
+      try {
+        // Race getSession against a 2.5s timeout — stale tokens can hang forever
+        const sessionTimeoutPromise = new Promise<{ data: { session: null }, error: null }>(
+          (resolve) => setTimeout(() => resolve({ data: { session: null }, error: null }), 2500)
+        );
+        const { data: { session }, error } = await Promise.race([
+          supabase.auth.getSession(),
+          sessionTimeoutPromise,
+        ]);
+
+        if (error) {
+          // Invalid / corrupt stored token — wipe and show login
+          console.warn('[AUTH] getSession error — clearing stored session:', error.message);
+          await supabase.auth.signOut({ scope: 'local' });
+          if (!cancelled) { setUser(null); setLoading(false); }
+          hydrationDone.current = true;
+          clearTimeout(safetyTimer);
+          return;
+        }
+
+        if (session?.user) {
+          console.log('[AUTH] Valid session found for:', session.user.email);
+          if (!cancelled) await fetchAndSetProfile(session.user);
+        } else {
+          console.log('[AUTH] No active session — showing login');
+          if (!cancelled) { setUser(null); setLoading(false); }
+        }
+      } catch (err: any) {
+        console.error('[AUTH] Hydration exception:', err?.message);
+        if (!cancelled) { setUser(null); setLoading(false); }
+      }
+
+      hydrationDone.current = true;
+      clearTimeout(safetyTimer);
+    };
+
+    hydrate();
+
+    // ── 3. Auth state listener (only active AFTER hydration) ─────────────────
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        // Ignore the initial synthetic event that fires during hydration.
+        // This is the root cause of the old double-fetch / race condition.
+        if (!hydrationDone.current) return;
+        if (cancelled) return;
+
+        console.log('[AUTH] onAuthStateChange:', event);
+
+        switch (event) {
+          case 'SIGNED_IN':
+          case 'TOKEN_REFRESHED':
+          case 'USER_UPDATED': {
+            if (session?.user) {
+              // Don't clobber a dev bypass session with a real session event
+              const devCheck = safeParseStorage<User>(DEV_STORAGE_KEY);
+              if (!devCheck) {
+                // Only show loading screen if we don't already have an active user session
+                setUser(prev => {
+                  if (!prev) setLoading(true);
+                  return prev;
+                });
+                await fetchAndSetProfile(session.user);
+              }
+            }
+            break;
+          }
+          case 'SIGNED_OUT': {
+            localStorage.removeItem(DEV_STORAGE_KEY);
+            setUser(null);
+            setLoading(false);
+            break;
+          }
+          case 'PASSWORD_RECOVERY': {
+            // No user state change needed
+            break;
+          }
+          default:
+            break;
+        }
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+      subscription.unsubscribe();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  const login = async (email: string, password: string): Promise<void> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    
     if (error) {
-      if (error.message.includes('Invalid login credentials')) {
-          throw new Error("Wrong Password! Please make sure you are typing exactly what you set in the SQL script (e.g. admin123)");
+      if (error.message.toLowerCase().includes('invalid login credentials')) {
+        throw new Error('Incorrect email or password. Please try again.');
       }
       throw error;
     }
-    // onAuthStateChange will fire SIGNED_IN and handle profile fetch + redirect.
-    // Do NOT call fetchUserProfile here — it created a deadlock.
+    // onAuthStateChange → SIGNED_IN will call fetchAndSetProfile
   };
 
-  const signup = async (email: string, password: string) => {
+  const signup = async (email: string, password: string): Promise<void> => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
-    
     if (data.user) {
-      const newUserObj = {
+      const newRow = {
         id: data.user.id,
         name: data.user.email?.split('@')[0] || 'User',
         email: data.user.email || '',
-        role: Role.AGENT
+        role: Role.AGENT,
       };
-
-      await supabase.from('users').insert([newUserObj]);
-      
-      setUser({
-        ...newUserObj,
-        status: 'Active',
-        createdAt: new Date()
-      });
+      await supabase.from('users').insert([newRow]).throwOnError();
+      setUser({ ...newRow, status: 'Active', createdAt: new Date() } as User);
     }
   };
 
   const createUserByAdmin = async (
-    email: string, 
-    password: string, 
-    name: string, 
-    role: Role, 
+    email: string,
+    password: string,
+    name: string,
+    role: Role,
     teamId?: string,
     apiKeys?: User['apiKeys'],
     modelConfig?: User['modelConfig']
-  ) => {
-    // Use a TEMPORARY Supabase client so we don't log out the current admin.
-    // persistSession: false means this signup won't touch the admin's session.
+  ): Promise<void> => {
     const { createClient } = await import('@supabase/supabase-js');
     const tempClient = createClient(
       import.meta.env.VITE_SUPABASE_URL,
@@ -171,151 +297,150 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       { auth: { persistSession: false, autoRefreshToken: false } }
     );
 
-    // Sign up the new user — pass name & role in metadata so the
-    // handle_new_user trigger can auto-create the public.users row.
     const { data: authData, error: authError } = await tempClient.auth.signUp({
       email,
       password,
-      options: {
-        data: { name, role },          // stored in raw_user_meta_data
-        emailRedirectTo: undefined,    // no redirect needed
-      },
+      options: { data: { name, role } },
     });
 
-    if (authError) {
-      console.error('signUp error:', authError);
-      throw new Error(authError.message);
-    }
+    if (authError) throw new Error(authError.message);
+    if (!authData.user) throw new Error('User was not created. Please try again.');
 
-    if (!authData.user) {
-      throw new Error('User was not created. Please try again.');
-    }
-
-    const newUserId = authData.user.id;
-
-    // Upsert into public.users (the trigger may have already done this,
-    // but we upsert to be safe and to set team_id which the trigger doesn't know).
     const { error: dbError } = await supabase.from('users').upsert({
-      id:           newUserId,
-      email:        email,
-      name:         name,
-      role:         role,
-      status:       'Active',
-      team_id:      teamId || null,
-      api_keys:     apiKeys     || {},
+      id: authData.user.id,
+      email,
+      name,
+      role,
+      status: 'Active',
+      team_id: teamId || null,
+      api_keys: apiKeys || {},
       model_config: modelConfig || {},
     }, { onConflict: 'id' });
 
-    if (dbError) {
-      console.error('public.users upsert error:', dbError);
-      // Don't throw — the auth user was already created successfully
-    }
-
-    return newUserId;
+    if (dbError) console.error('[AUTH] createUserByAdmin upsert error:', dbError.message);
   };
 
-  const updateUserByAdmin = async (userId: string, data: Partial<User> & { password?: string }) => {
-    try {
-      const { password, ...updateData } = data;
-      
-      // Build update payload — only include fields that are provided
-      const payload: Record<string, any> = {};
-      if (updateData.name     !== undefined) payload.name        = updateData.name;
-      if (updateData.role     !== undefined) payload.role        = updateData.role;
-      if (updateData.status   !== undefined) payload.status      = updateData.status;
-      if (updateData.teamId   !== undefined) payload.team_id     = updateData.teamId;
-      if (updateData.apiKeys  !== undefined) payload.api_keys    = updateData.apiKeys;
-      if (updateData.modelConfig !== undefined) payload.model_config = updateData.modelConfig;
-      if (updateData.preferences !== undefined) payload.preferences  = updateData.preferences;
+  const updateUserByAdmin = async (
+    userId: string,
+    data: Partial<User> & { password?: string }
+  ): Promise<void> => {
+    const { password, ...updateData } = data;
+    const payload: Record<string, any> = {};
+    if (updateData.name !== undefined) payload.name = updateData.name;
+    if (updateData.role !== undefined) payload.role = updateData.role;
+    if (updateData.status !== undefined) payload.status = updateData.status;
+    if (updateData.teamId !== undefined) payload.team_id = updateData.teamId;
+    if (updateData.apiKeys !== undefined) payload.api_keys = updateData.apiKeys;
+    if (updateData.modelConfig !== undefined) payload.model_config = updateData.modelConfig;
+    if (updateData.preferences !== undefined) payload.preferences = updateData.preferences;
 
-      const { error: dbError } = await supabase
-        .from('users')
-        .update(payload)
-        .eq('id', userId);
+    const { error } = await supabase.from('users').update(payload).eq('id', userId);
+    if (error) throw error;
 
-      if (dbError) throw dbError;
+    // Reflect changes on the currently-logged-in user immediately
+    if (userId === user?.id) {
+      setUser(prev => prev ? { ...prev, ...updateData } : null);
+    }
 
-      // Updating the logged-in user's own data → refresh local state
-      if (userId === user?.id) {
-        setUser(prev => prev ? { ...prev, ...updateData } : null);
+    if (password?.trim()) {
+      const { data: targetUser } = await supabase
+        .from('users').select('email').eq('id', userId).single();
+      if (targetUser?.email) {
+        await supabase.auth.resetPasswordForEmail(targetUser.email);
       }
-
-      // Password resets require Supabase Admin API (service role).
-      // Workaround: send a password reset email to the user.
-      if (password && password.trim().length > 0) {
-        const targetUser = await supabase.from('users').select('email').eq('id', userId).single();
-        if (targetUser.data?.email) {
-          await supabase.auth.resetPasswordForEmail(targetUser.data.email);
-          console.info('Password reset email sent to', targetUser.data.email);
-        }
-      }
-    } catch (e) {
-      console.error("Error updating user:", e);
-      throw e;
     }
   };
 
-  const resetUserPassword = async (email: string) => {
+  const resetUserPassword = async (email: string): Promise<void> => {
     const { error } = await supabase.auth.resetPasswordForEmail(email);
     if (error) throw error;
   };
-  
-  const devLogin = () => {
+
+  const devLogin = (): void => {
     const devUser: User = {
       id: 'dev-user-admin',
       name: 'Dev Admin',
       email: 'admin@dev.local',
-      role: Role.ADMIN, 
+      role: Role.ADMIN,
       status: 'Active',
       teamId: 'team_default',
-      createdAt: new Date()
+      createdAt: new Date(),
     };
+    localStorage.setItem(DEV_STORAGE_KEY, JSON.stringify(devUser));
     setUser(devUser);
     setLoading(false);
   };
 
-  const logout = async () => {
+  const logout = async (): Promise<void> => {
     try {
-      setLoading(true);
+      localStorage.removeItem(DEV_STORAGE_KEY);
+      // Try global sign-out; fall back to local-only to avoid network errors blocking logout
       const { error } = await supabase.auth.signOut();
       if (error) {
-        console.warn("Server sign-out failed, clearing local session...", error);
+        console.warn('[AUTH] Global sign-out failed, using local scope:', error.message);
         await supabase.auth.signOut({ scope: 'local' });
       }
-    } catch (err) {
-      console.error("Sign-out exception:", err);
+    } catch (err: any) {
+      console.error('[AUTH] logout exception:', err?.message);
       await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     } finally {
       setUser(null);
       setLoading(false);
-      window.location.hash = '#/login'; // Force navigation
+      // onAuthStateChange SIGNED_OUT will also fire, which is fine — it's idempotent
     }
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen gap-4" style={{ background: '#f8fafc' }}>
-        {/* Spinning ring */}
-        <div style={{
-          width: 48, height: 48,
-          border: '3px solid #e2e8f0',
-          borderTop: '3px solid #0ea5e9',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite'
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        {/* Wordmark */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          gap: 16,
+          background: '#f8fafc',
+        }}
+      >
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            border: '3px solid #e2e8f0',
+            borderTop: '3px solid #0ea5e9',
+            borderRadius: '50%',
+            animation: 'altleads-spin 0.8s linear infinite',
+          }}
+        />
+        <style>{`@keyframes altleads-spin { to { transform: rotate(360deg); } }`}</style>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 900, fontSize: 22, letterSpacing: '-0.5px' }}>
           <span style={{ color: '#0ea5e9' }}>Alt</span>
           <span style={{ color: '#0f172a' }}>Leads</span>
         </div>
-        <p style={{ fontSize: 12, color: '#94a3b8', marginTop: -8, letterSpacing: '0.05em' }}>Loading your workspace...</p>
+        <p style={{ fontSize: 12, color: '#94a3b8', marginTop: -8, letterSpacing: '0.05em' }}>
+          Loading your workspace...
+        </p>
       </div>
     );
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, createUserByAdmin, updateUserByAdmin, resetUserPassword, devLogin, logout, loading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        signup,
+        createUserByAdmin,
+        updateUserByAdmin,
+        resetUserPassword,
+        devLogin,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

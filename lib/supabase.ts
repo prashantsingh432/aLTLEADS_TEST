@@ -7,4 +7,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // Use localStorage so sessions persist across tabs/refreshes
+    persistSession: true,
+    // Automatically refresh token before expiry
+    autoRefreshToken: true,
+    // Detect auth code in URL (needed for magic links, OAuth)
+    detectSessionInUrl: false,
+    // Use a unique storage key so stale sessions from old projects don't conflict
+    storageKey: 'altleads-auth-token',
+  },
+});
+

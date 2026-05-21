@@ -47,6 +47,7 @@ interface DataContextType {
   updateAIModel: (model: Partial<AIModel> & { id: string }) => Promise<void>;
   deleteAIModel: (id: string) => Promise<void>;
   updateUserPlan: (userId: string, plan: PlanType, customBalance?: number) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
 }
 
 export const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -325,31 +326,76 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                  dbRecord.created_by_email = user?.email;
                  dbRecord.created_by_name = user?.name;
               }
+              if (!dbRecord.id) delete dbRecord.id;
               dbRecord.last_updated = new Date().toISOString();
               return dbRecord;
           });
 
-          await supabase.from('prospects').upsert(upsertPayload);
-          processed += chunk.length;
-          if (onProgress) onProgress(processed);
+          const { error } = await supabase.from('prospects').upsert(upsertPayload);
+          if (error) {
+              console.error('[DATA] addProspectsBulk error:', error.message);
+              throw new Error(`Bulk import failed: ${error.message}`);
+          }
+          // After bulk insert, refetch to keep local state perfectly synced
+          await fetchData();
       }
-  }, [prospects, user]);
+  }, [prospects, user, fetchData]);
 
   const updateProspect = useCallback(async (updatedProspect: Prospect) => {
     try {
         const { id, ...data } = mapProspectToDB(updatedProspect);
-        await supabase.from('prospects').update({ ...data, last_updated: new Date().toISOString() }).eq('id', id);
+        if (data.team_id === '') data.team_id = null;
+        
+        const { data: resData, error } = await supabase
+            .from('prospects')
+            .update({ ...data, last_updated: new Date().toISOString() })
+            .eq('id', id)
+            .select();
+            
+        if (error) {
+            console.error('[DATA] updateProspect error:', error.message);
+            throw new Error(`Update failed: ${error.message}`);
+        }
+        
+        if (resData && resData[0]) {
+            const clientProspect = mapProspectToClient(resData[0]);
+            setProspects(prev => prev.map(p => p.id === id ? clientProspect : p));
+        }
     } catch (e) { console.error(e); throw e; }
   }, []);
 
   const addProspect = useCallback(async (newProspect: Omit<Prospect, 'id' | 'lastUpdated'>) => {
       try {
           const data = mapProspectToDB(newProspect);
-          await supabase.from('prospects').insert([{ ...data, created_by_uid: user?.id, created_by_email: user?.email, created_by_name: user?.name, last_updated: new Date().toISOString() }]);
+          if (data.team_id === '') data.team_id = null;
+          if (!data.id) delete data.id;
+          
+          const { data: resData, error } = await supabase
+              .from('prospects')
+              .insert([{ ...data, created_by_uid: user?.id, created_by_email: user?.email, created_by_name: user?.name, last_updated: new Date().toISOString() }])
+              .select();
+              
+          if (error) {
+              console.error('[DATA] addProspect error:', error.message);
+              throw new Error(`Insert failed: ${error.message}`);
+          }
+          
+          if (resData && resData[0]) {
+              const clientProspect = mapProspectToClient(resData[0]);
+              setProspects(prev => [clientProspect, ...prev]);
+          }
       } catch (e) { console.error(e); throw e; }
   }, [user]);
 
-  const deleteProspect = useCallback(async (id: string) => { await supabase.from('prospects').delete().eq('id', id); }, []);
+  const deleteProspect = useCallback(async (id: string) => {
+    const { error } = await supabase.from('prospects').delete().eq('id', id);
+    if (error) {
+      console.error('[DATA] deleteProspect error:', error.message, '| Code:', error.code);
+      throw new Error(`Failed to delete prospect: ${error.message}`);
+    }
+    // Optimistic local update — remove instantly regardless of Realtime subscription
+    setProspects(prev => prev.filter(p => p.id !== id));
+  }, []);
   
   const addComment = useCallback(async (prospectId: string, author: User, text: string) => {
       const prospect = prospects.find(p => p.id === prospectId);
@@ -407,7 +453,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }).eq('id', updatedRequest.id);
   }, []);
   
-  const deleteContactRequest = useCallback(async (id: string) => { await supabase.from('contact_requests').delete().eq('id', id); }, []);
+  const deleteContactRequest = useCallback(async (id: string) => {
+    const { error } = await supabase.from('contact_requests').delete().eq('id', id);
+    if (error) throw new Error(`Failed to delete contact request: ${error.message}`);
+    setContactRequests(prev => prev.filter(r => r.id !== id));
+  }, []);
   
   const logProfileView = useCallback(async (prospectId: string, agentId: string) => {
     await supabase.from('profile_views').insert([{ prospect_id: prospectId, agent_id: agentId }]);
@@ -500,7 +550,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }).eq('id', product.id);
   }, []);
 
-  const deleteProduct = useCallback(async (id: string) => { await supabase.from('products').delete().eq('id', id); }, []);
+  const deleteProduct = useCallback(async (id: string) => {
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) throw new Error(`Failed to delete product: ${error.message}`);
+    setProducts(prev => prev.filter(p => p.id !== id));
+  }, []);
 
   const addPersona = useCallback(async (persona: Omit<Persona, 'id' | 'createdAt'>) => {
       await supabase.from('personas').insert([{
@@ -525,7 +579,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }).eq('id', persona.id);
   }, []);
 
-  const deletePersona = useCallback(async (id: string) => { await supabase.from('personas').delete().eq('id', id); }, []);
+  const deletePersona = useCallback(async (id: string) => {
+    const { error } = await supabase.from('personas').delete().eq('id', id);
+    if (error) throw new Error(`Failed to delete persona: ${error.message}`);
+    setPersonas(prev => prev.filter(p => p.id !== id));
+  }, []);
 
   const addAIModel = useCallback(async (model: Omit<AIModel, 'createdAt' | 'updatedAt'>) => {
        await supabase.from('ai_models').insert([{
@@ -566,13 +624,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }).eq('id', model.id);
   }, []);
   
-  const deleteAIModel = useCallback(async (id: string) => { await supabase.from('ai_models').delete().eq('id', id); }, []);
+  const deleteAIModel = useCallback(async (id: string) => {
+    const { error } = await supabase.from('ai_models').delete().eq('id', id);
+    if (error) throw new Error(`Failed to delete AI model: ${error.message}`);
+    setAiModels(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  // ── User Deletion (centralized, syncs both users + credits instantly) ──────
+  const deleteUser = useCallback(async (userId: string) => {
+    const { error } = await supabase.rpc('delete_user_by_admin', { target_user_id: userId });
+    if (error) {
+      console.error('[DATA] deleteUser RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    // Immediately remove the user and their credits from local state
+    setUsers(prev => prev.filter(u => u.id !== userId));
+    setAllUserCredits(prev => prev.filter(c => c.userId !== userId));
+  }, []);
 
   return (
     <DataContext.Provider value={{ 
         prospects, contactRequests, profileViews, users, teams, products, personas, aiModels, allUserCredits, currentUserCredits, searchHistory, isSynced, 
         updateProspect, addProspect, deleteProspect, addProspectsBulk, addComment, createContactRequest, deleteContactRequest, logProfileView, updateContactRequest, updateUserRole, markValidation, addToHistory, seedDatabase, runV5Migration,
-        addTeam, updateTeam, addProduct, updateProduct, deleteProduct, addPersona, updatePersona, deletePersona, addAIModel, addAIModelsBulk, updateAIModel, deleteAIModel, updateUserPlan
+        addTeam, updateTeam, addProduct, updateProduct, deleteProduct, addPersona, updatePersona, deletePersona, addAIModel, addAIModelsBulk, updateAIModel, deleteAIModel, updateUserPlan, deleteUser
     }}>
       {children}
     </DataContext.Provider>
