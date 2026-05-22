@@ -7,6 +7,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { Navigate } from 'react-router-dom';
+import { isAdmin } from '../lib/permissions';
 
 const AdminModelsPage: React.FC = () => {
     const { aiModels, addAIModel, updateAIModel, deleteAIModel, addAIModelsBulk } = useData();
@@ -27,7 +28,7 @@ const AdminModelsPage: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // STRICT ADMIN CHECK
-    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)) {
+    if (!user || !isAdmin(user)) {
         return <Navigate to="/" />;
     }
 

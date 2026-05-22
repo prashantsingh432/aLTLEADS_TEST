@@ -8,6 +8,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import { Navigate } from 'react-router-dom';
+import { isAdmin } from '../lib/permissions';
 
 const AdminTeamPage: React.FC = () => {
     const { teams, updateTeam, addTeam, aiModels, products, personas, isSynced } = useData();
@@ -71,7 +72,7 @@ const AdminTeamPage: React.FC = () => {
         }
     }, [selectedTeamId, teams, products, personas]);
 
-    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)) {
+    if (!user || !isAdmin(user)) {
         return <Navigate to="/" />;
     }
 

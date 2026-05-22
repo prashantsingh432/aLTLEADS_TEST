@@ -5,10 +5,12 @@ import { useData } from '../../hooks/useData';
 import { LogoutIcon, CloudSyncIcon } from '../../constants';
 import Button from '../ui/Button';
 import { Role } from '../../types';
+import { isSuperAdmin } from '../../lib/permissions';
 
 const Header: React.FC = () => {
   const { user, logout } = useAuth();
   const { isSynced } = useData();
+  const isRootAdmin = isSuperAdmin(user);
 
   return (
     <header className="h-16 bg-surface shadow-sm border-b border-gray-100 flex items-center justify-between px-6 z-10">
@@ -27,7 +29,7 @@ const Header: React.FC = () => {
         <div className="flex items-center space-x-3 pl-6 border-l border-gray-200">
             <div className="text-right">
             <p className="text-sm font-semibold text-text-primary">{user?.name}</p>
-            {user?.role === Role.SUPER_ADMIN ? (
+            {isRootAdmin ? (
               <span className="text-[10px] font-black tracking-wider text-cyan-600 bg-cyan-50 border border-cyan-200 rounded px-1.5 py-0.5 shadow-[0_0_8px_rgba(6,182,212,0.15)] inline-block animate-pulse">
                 SUPER ADMIN • DEVELOPER ACCESS
               </span>
@@ -37,7 +39,7 @@ const Header: React.FC = () => {
               </p>
             )}
             </div>
-            <div className={`h-10 w-10 bg-gradient-to-br from-primary to-accent rounded-full flex items-center justify-center text-white font-bold shadow-md ${user?.role === Role.SUPER_ADMIN ? 'ring-2 ring-cyan-400 ring-offset-1 shadow-[0_0_12px_rgba(34,211,238,0.4)]' : ''}`}>
+            <div className={`h-10 w-10 bg-gradient-to-br from-primary to-accent rounded-full flex items-center justify-center text-white font-bold shadow-md ${isRootAdmin ? 'ring-2 ring-cyan-400 ring-offset-1 shadow-[0_0_12px_rgba(34,211,238,0.4)]' : ''}`}>
             {user?.name.charAt(0).toUpperCase()}
             </div>
             <Button onClick={logout} variant="ghost" size="icon" className="text-gray-400 hover:text-red-600">

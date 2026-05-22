@@ -4,10 +4,12 @@ import { NavLink } from 'react-router-dom';
 import { NAV_LINKS } from '../../constants';
 import { useAuth } from '../../hooks/useAuth';
 import { Role } from '../../types';
+import { isSuperAdmin } from '../../lib/permissions';
 
 const Sidebar: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
+  const isRootAdmin = isSuperAdmin(user);
 
   return (
     <aside className={`${collapsed ? 'w-20' : 'w-72'} bg-primary flex-shrink-0 flex flex-col transition-all duration-300 ease-in-out relative border-r border-gray-800`}>
@@ -18,19 +20,19 @@ const Sidebar: React.FC = () => {
             <span className="text-xl font-black tracking-tighter text-white leading-none">
               <span className="text-accent">Alt</span>Leads
             </span>
-            {user?.role === Role.SUPER_ADMIN && (
+            {user?.role === Role.SUPER_ADMIN || isRootAdmin ? (
               <span className="text-[8px] font-black tracking-widest text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 rounded px-1.5 py-0.5 mt-1.5 shadow-[0_0_8px_rgba(34,211,238,0.15)] animate-pulse uppercase max-w-[130px] text-center">
                 ⚡ ROOT DEVELOPER
               </span>
-            )}
+            ) : null}
           </div>
         )}
         {collapsed && (
           <div className="flex flex-col items-center">
             <span className="text-xl font-bold text-accent">AL</span>
-            {user?.role === Role.SUPER_ADMIN && (
+          {isRootAdmin ? (
               <span className="text-[7px] text-cyan-400 font-extrabold animate-pulse uppercase mt-0.5">DEV</span>
-            )}
+            ) : null}
           </div>
         )}
         
@@ -48,7 +50,7 @@ const Sidebar: React.FC = () => {
       <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
         {NAV_LINKS.map((link) => {
           // Access Control: Check if the user's role is in the allowed list
-          if (link.roles && user && user.role !== Role.SUPER_ADMIN && !link.roles.includes(user.role)) {
+          if (link.roles && user && !isRootAdmin && !link.roles.includes(user.role)) {
               return null;
           }
           

@@ -8,6 +8,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { Navigate } from 'react-router-dom';
+import { hasRole } from '../lib/permissions';
 
 const AdminProductsPage: React.FC = () => {
     const { products, teams, addProduct, updateProduct, deleteProduct } = useData();
@@ -33,7 +34,7 @@ const AdminProductsPage: React.FC = () => {
     const [clientsText, setClientsText] = useState('');
     const [competitorsText, setCompetitorsText] = useState('');
 
-    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN && user.role !== Role.DATA_TEAM)) {
+    if (!user || !hasRole(user, Role.DATA_TEAM)) {
         return <Navigate to="/" />;
     }
 

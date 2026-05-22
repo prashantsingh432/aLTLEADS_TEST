@@ -16,18 +16,29 @@ export const ROLE_HIERARCHY: Record<Role, number> = {
 
 /**
  * Checks if the actor's role meets the minimum required role.
+ * Super Admins always satisfy any role requirement.
  */
 export const hasRole = (user: User | null, requiredRole: Role): boolean => {
   if (!user) return false;
+  // Super admins (by role or email) always pass any role check
+  if (isSuperAdmin(user)) return true;
   return ROLE_HIERARCHY[user.role] >= ROLE_HIERARCHY[requiredRole];
 };
 
 /**
+ * Root admin emails that are always treated as SUPER_ADMIN
+ * regardless of their database role value.
+ */
+const ROOT_ADMIN_EMAILS = ['admin@amplior.com', 'superadmin@amplior.com'];
+
+/**
  * Checks if a user has Super Admin (Root/Developer) privileges.
+ * Uses an email-based bypass as a safety net for cases where the
+ * database role may not yet reflect SUPER_ADMIN (e.g. migration lag).
  */
 export const isSuperAdmin = (user: User | null): boolean => {
   if (!user) return false;
-  return user.role === Role.SUPER_ADMIN;
+  return user.role === Role.SUPER_ADMIN || ROOT_ADMIN_EMAILS.includes(user.email);
 };
 
 /**

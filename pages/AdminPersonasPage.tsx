@@ -8,6 +8,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { Navigate } from 'react-router-dom';
+import { hasRole } from '../lib/permissions';
 
 const AdminPersonasPage: React.FC = () => {
     const { personas, teams, addPersona, updatePersona, deletePersona } = useData();
@@ -27,7 +28,7 @@ const AdminPersonasPage: React.FC = () => {
     const [titlesText, setTitlesText] = useState('');
     const [keywordsText, setKeywordsText] = useState('');
 
-    if (!user || (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN && user.role !== Role.DATA_TEAM)) {
+    if (!user || !hasRole(user, Role.DATA_TEAM)) {
         return <Navigate to="/" />;
     }
 

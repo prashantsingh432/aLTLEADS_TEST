@@ -65,6 +65,52 @@ const SettingsPage: React.FC = () => {
     const isSuperAdmin = checkSuperAdmin(currentUser);
     const isAdmin = checkAdmin(currentUser);
 
+    // --- CONFIRMATION MODAL & TOAST STATE ---
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        confirmText: string;
+        cancelText: string;
+        type: 'danger' | 'warning' | 'info' | 'success';
+        bullets?: string[];
+        onConfirm: () => void | Promise<void>;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        confirmText: 'Confirm',
+        cancelText: 'Cancel',
+        type: 'info',
+        bullets: [],
+        onConfirm: () => {}
+    });
+
+    const [confirmCheckbox, setConfirmCheckbox] = useState(false);
+
+    const [toast, setToast] = useState<{
+        isOpen: boolean;
+        message: string;
+        type: 'success' | 'error' | 'info';
+    }>({
+        isOpen: false,
+        message: '',
+        type: 'success'
+    });
+
+    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ isOpen: true, message, type });
+    };
+
+    useEffect(() => {
+        if (toast.isOpen) {
+            const timer = setTimeout(() => {
+                setToast(prev => ({ ...prev, isOpen: false }));
+            }, 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast.isOpen]);
+
     // Initialize My Settings from Current User
     useEffect(() => {
         if (currentUser) {
@@ -96,9 +142,9 @@ const SettingsPage: React.FC = () => {
                 apiKeys: myApiKeys,
                 modelConfig: myModelConfig
             });
-            alert("Your settings have been saved!");
+            showToast("Your settings have been saved!", "success");
         } catch (e: any) {
-            alert("Error saving: " + e.message);
+            showToast("Error saving: " + e.message, "error");
         } finally {
             setLoading(false);
         }
@@ -141,11 +187,11 @@ const SettingsPage: React.FC = () => {
                 apiKeys: editUserApiKeys,
                 modelConfig: editUserModelConfig
             });
-            alert("User profile updated successfully.");
+            showToast("User profile updated successfully.", "success");
             setIsEditUserModalOpen(false);
             setEditingUser(null);
         } catch (e: any) {
-            alert(`Update failed: ${e.message}`);
+            showToast(`Update failed: ${e.message}`, "error");
         } finally {
             setLoading(false);
         }
@@ -154,20 +200,37 @@ const SettingsPage: React.FC = () => {
     const handleDeleteUser = async (userId: string, userName: string) => {
         const targetUser = users.find(u => u.id === userId);
         if (!canDeleteUser(currentUser, targetUser || null)) {
-            alert("Access Denied: You are not authorized to delete this user.");
+            showToast("Access Denied: You are not authorized to delete this user.", "error");
             return;
         }
-        if (window.confirm(`Are you sure you want to permanently delete user "${userName}"? This will completely remove them from the database. This action is irreversible.`)) {
-            setLoading(true);
-            try {
-                await deleteUser(userId);
-                alert(`User "${userName}" has been successfully deleted.`);
-            } catch (e: any) {
-                alert(`Failed to delete user: ${e.message}`);
-            } finally {
-                setLoading(false);
+        
+        setConfirmCheckbox(false);
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete CRM Account',
+            message: `Are you sure you want to permanently delete user "${userName}"? This will completely remove them from the database. This action is irreversible.`,
+            confirmText: 'Delete Account',
+            cancelText: 'Keep Account',
+            type: 'danger',
+            bullets: [
+                "Permanently delete their account credentials",
+                "Revoke Groq, Gemini & OpenRouter API key overrides",
+                "Erase historical usage telemetry and logs",
+                "Immediately terminate active extension sessions"
+            ],
+            onConfirm: async () => {
+                setLoading(true);
+                try {
+                    await deleteUser(userId);
+                    showToast(`User "${userName}" has been successfully deleted.`, 'success');
+                } catch (e: any) {
+                    showToast(`Failed to delete user: ${e.message}`, 'error');
+                } finally {
+                    setLoading(false);
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }
             }
-        }
+        });
     };
 
     const handleCreateUser = async (e: React.FormEvent) => {
@@ -182,9 +245,9 @@ const SettingsPage: React.FC = () => {
             setNewUserRole(Role.AGENT);
             setNewUserTeamId('');
             setIsCreateUserModalOpen(false);
-            alert(`✅ User "${newUserName || newUserEmail}" created successfully! They can now log in to the CRM.`);
+            showToast(`User "${newUserName || newUserEmail}" created successfully! They can now log in to the CRM.`, "success");
         } catch (err: any) {
-            alert(`Failed to create user: ${err.message}`);
+            showToast(`Failed to create user: ${err.message}`, "error");
         } finally {
             setLoading(false);
         }
@@ -203,11 +266,11 @@ const SettingsPage: React.FC = () => {
         setLoading(true);
         try {
             await updateUserPlan(selectedUserForPlan.id, selectedPlan, manualBalance);
-            alert(`Plan updated to ${PLAN_CONFIG[selectedPlan].label} with ${manualBalance} credits.`);
+            showToast(`Plan updated to ${PLAN_CONFIG[selectedPlan].label} with ${manualBalance} credits.`, "success");
             setIsPlanModalOpen(false);
         } catch (e) {
             console.error(e);
-            alert("Failed to update plan.");
+            showToast("Failed to update plan.", "error");
         } finally {
             setLoading(false);
         }
@@ -269,8 +332,8 @@ const SettingsPage: React.FC = () => {
                         await new Promise(r => setTimeout(r, 800));
                     }
                 }
-                alert(`Bulk Provisioning Complete.`);
-            } catch (err) { alert("Import Failure: CSV structure invalid."); }
+                showToast(`Bulk Provisioning Complete.`, "success");
+            } catch (err) { showToast("Import Failure: CSV structure invalid.", "error"); }
             finally { setLoading(false); setProgress(''); if (userImportRef.current) userImportRef.current.value = ''; }
         };
         reader.readAsText(file);
@@ -638,31 +701,61 @@ const SettingsPage: React.FC = () => {
                                                     <>
                                                         {u.status === 'Active' ? (
                                                             <button onClick={async () => {
-                                                                if (window.confirm(`Are you sure you want to deactivate ${u.name}? They will lose access to the CRM.`)) {
-                                                                    setLoading(true);
-                                                                    try {
-                                                                        await updateUserByAdmin(u.id, { status: 'Inactive' });
-                                                                        alert('User has been deactivated.');
-                                                                    } catch (e: any) {
-                                                                        alert('Failed to deactivate: ' + e.message);
-                                                                    } finally {
-                                                                        setLoading(false);
+                                                                setConfirmCheckbox(false);
+                                                                setConfirmModal({
+                                                                    isOpen: true,
+                                                                    title: 'Deactivate CRM Account',
+                                                                    message: `Are you sure you want to deactivate ${u.name}? They will lose access to the CRM immediately.`,
+                                                                    confirmText: 'Deactivate',
+                                                                    cancelText: 'Cancel',
+                                                                    type: 'warning',
+                                                                    bullets: [
+                                                                        "Block immediate login & dashboard sessions",
+                                                                        "Deauthorize extension authentication tokens",
+                                                                        "Preserve all historical credentials & plan metadata"
+                                                                    ],
+                                                                    onConfirm: async () => {
+                                                                        setLoading(true);
+                                                                        try {
+                                                                            await updateUserByAdmin(u.id, { status: 'Inactive' });
+                                                                            showToast('User has been deactivated.', 'success');
+                                                                        } catch (e: any) {
+                                                                            showToast('Failed to deactivate: ' + e.message, 'error');
+                                                                        } finally {
+                                                                            setLoading(false);
+                                                                            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                                                                        }
                                                                     }
-                                                                }
+                                                                });
                                                             }} className="text-xs font-bold text-red-600 hover:underline px-3 py-1.5 rounded hover:bg-red-50 transition-all">Deactivate</button>
                                                         ) : (
                                                             <button onClick={async () => {
-                                                                if (window.confirm(`Are you sure you want to reactivate ${u.name}?`)) {
-                                                                    setLoading(true);
-                                                                    try {
-                                                                        await updateUserByAdmin(u.id, { status: 'Active' });
-                                                                        alert('User has been reactivated.');
-                                                                    } catch (e: any) {
-                                                                        alert('Failed to reactivate: ' + e.message);
-                                                                    } finally {
-                                                                        setLoading(false);
+                                                                setConfirmCheckbox(false);
+                                                                setConfirmModal({
+                                                                    isOpen: true,
+                                                                    title: 'Reactivate CRM Account',
+                                                                    message: `Are you sure you want to reactivate ${u.name}? They will regain full CRM access.`,
+                                                                    confirmText: 'Reactivate',
+                                                                    cancelText: 'Cancel',
+                                                                    type: 'success',
+                                                                    bullets: [
+                                                                        "Restore dashboard login and portal navigation",
+                                                                        "Reauthorize active browser extension sessions",
+                                                                        "Restore user preferences and API key configurations"
+                                                                    ],
+                                                                    onConfirm: async () => {
+                                                                        setLoading(true);
+                                                                        try {
+                                                                            await updateUserByAdmin(u.id, { status: 'Active' });
+                                                                            showToast('User has been reactivated.', 'success');
+                                                                        } catch (e: any) {
+                                                                            showToast('Failed to reactivate: ' + e.message, 'error');
+                                                                        } finally {
+                                                                            setLoading(false);
+                                                                            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                                                                        }
                                                                     }
-                                                                }
+                                                                });
                                                             }} className="text-xs font-bold text-green-600 hover:underline px-3 py-1.5 rounded hover:bg-green-50 transition-all">Reactivate</button>
                                                         )}
                                                         <button onClick={() => handleDeleteUser(u.id, u.name)} className="text-xs font-bold text-red-600 hover:underline px-3 py-1.5 rounded hover:bg-red-50 transition-all">Delete</button>
@@ -1032,6 +1125,190 @@ const SettingsPage: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* Custom Premium Confirmation Dialog */}
+            {confirmModal.isOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md transition-all duration-300 animate-in fade-in">
+                    {/* Glowing background blob */}
+                    <div className={`absolute w-72 h-72 rounded-full blur-[100px] opacity-20 animate-pulse ${
+                        confirmModal.type === 'danger' ? 'bg-red-500 shadow-[0_0_80px_rgba(239,68,68,0.3)]' :
+                        confirmModal.type === 'warning' ? 'bg-amber-500 shadow-[0_0_80px_rgba(245,158,11,0.3)]' :
+                        confirmModal.type === 'success' ? 'bg-emerald-500 shadow-[0_0_80px_rgba(16,185,129,0.3)]' :
+                        'bg-blue-500 shadow-[0_0_80px_rgba(59,130,246,0.3)]'
+                    }`} />
+                    
+                    <div className="relative bg-white border border-slate-200/80 rounded-3xl shadow-[0_30px_70px_rgba(0,0,0,0.35)] w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                        {/* Gradient border line top */}
+                        <div className={`h-2 w-full bg-gradient-to-r ${
+                            confirmModal.type === 'danger' ? 'from-red-500 via-rose-500 to-red-600' :
+                            confirmModal.type === 'warning' ? 'from-amber-400 via-orange-500 to-amber-500' :
+                            confirmModal.type === 'success' ? 'from-emerald-400 via-teal-500 to-emerald-600' :
+                            'from-blue-500 via-indigo-500 to-blue-600'
+                        }`} />
+                        
+                        <div className="p-8 flex flex-col items-center">
+                            {/* Super premium triple-ring animated icon container */}
+                            <div className="relative mb-6">
+                                <div className={`absolute inset-0 rounded-full animate-ping opacity-20 ${
+                                    confirmModal.type === 'danger' ? 'bg-red-400' :
+                                    confirmModal.type === 'warning' ? 'bg-amber-400' :
+                                    confirmModal.type === 'success' ? 'bg-emerald-400' :
+                                    'bg-blue-400'
+                                }`} style={{ animationDuration: '3s' }} />
+                                <div className={`absolute -inset-2 rounded-full border border-dashed animate-spin opacity-40 ${
+                                    confirmModal.type === 'danger' ? 'border-red-400' :
+                                    confirmModal.type === 'warning' ? 'border-amber-400' :
+                                    confirmModal.type === 'success' ? 'border-emerald-400' :
+                                    'border-blue-400'
+                                }`} style={{ animationDuration: '20s' }} />
+                                
+                                <div className={`w-20 h-20 rounded-full flex items-center justify-center relative shadow-inner ${
+                                    confirmModal.type === 'danger' ? 'bg-red-50 text-red-500 border border-red-100' :
+                                    confirmModal.type === 'warning' ? 'bg-amber-50 text-amber-500 border border-amber-100' :
+                                    confirmModal.type === 'success' ? 'bg-emerald-50 text-emerald-500 border border-emerald-100' :
+                                    'bg-blue-50 text-blue-500 border border-blue-100'
+                                }`}>
+                                    {confirmModal.type === 'danger' && (
+                                        <svg className="w-10 h-10 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    )}
+                                    {confirmModal.type === 'warning' && (
+                                        <svg className="w-10 h-10 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                    )}
+                                    {confirmModal.type === 'success' && (
+                                        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    )}
+                                    {confirmModal.type === 'info' && (
+                                        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    )}
+                                </div>
+                            </div>
+
+                            <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">{confirmModal.title}</h3>
+                            <p className="text-sm text-slate-500 leading-relaxed mb-6 px-4 text-center">{confirmModal.message}</p>
+
+                            {/* Consequences Card */}
+                            {confirmModal.bullets && confirmModal.bullets.length > 0 && (
+                                <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-5 mb-6 text-left">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className={`w-2 h-2 rounded-full ${
+                                            confirmModal.type === 'danger' ? 'bg-red-500' :
+                                            confirmModal.type === 'warning' ? 'bg-amber-500' :
+                                            confirmModal.type === 'success' ? 'bg-emerald-500' :
+                                            'bg-blue-500'
+                                        }`} />
+                                        <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Impact Summary</span>
+                                    </div>
+                                    <ul className="space-y-2">
+                                        {confirmModal.bullets.map((bullet, idx) => (
+                                            <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-600">
+                                                <svg className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${
+                                                    confirmModal.type === 'danger' ? 'text-red-500' :
+                                                    confirmModal.type === 'warning' ? 'text-amber-500' :
+                                                    confirmModal.type === 'success' ? 'text-emerald-500' :
+                                                    'text-blue-500'
+                                                }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                                </svg>
+                                                <span>{bullet}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Double Confirmation Checkbox */}
+                            <label className="flex items-center gap-3 w-full bg-slate-50 border border-slate-100 hover:bg-slate-100/50 transition-colors p-4 rounded-xl mb-6 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={confirmCheckbox}
+                                    onChange={(e) => setConfirmCheckbox(e.target.checked)}
+                                    className={`h-5 w-5 rounded border-slate-300 transition-all ${
+                                        confirmModal.type === 'danger' ? 'text-red-500 focus:ring-red-500' :
+                                        confirmModal.type === 'warning' ? 'text-amber-500 focus:ring-amber-500' :
+                                        confirmModal.type === 'success' ? 'text-emerald-500 focus:ring-emerald-500' :
+                                        'text-blue-500 focus:ring-blue-500'
+                                    }`}
+                                />
+                                <span className="text-xs font-semibold text-slate-600 leading-tight">
+                                    I understand and accept the consequences of this action.
+                                </span>
+                            </label>
+
+                            {/* Actions Buttons */}
+                            <div className="flex w-full gap-3">
+                                <button
+                                    onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                                    className="flex-1 px-5 py-3.5 border border-slate-200 text-slate-500 hover:text-slate-800 rounded-xl font-bold text-sm hover:bg-slate-50 active:bg-slate-100 transition-all duration-200"
+                                >
+                                    {confirmModal.cancelText}
+                                </button>
+                                <button
+                                    onClick={confirmModal.onConfirm}
+                                    disabled={!confirmCheckbox}
+                                    className={`flex-1 px-5 py-3.5 text-white rounded-xl font-bold text-sm shadow-md transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 ${
+                                        !confirmCheckbox ? 'bg-slate-300 text-slate-500 shadow-none cursor-not-allowed opacity-60' :
+                                        confirmModal.type === 'danger' ? 'bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 shadow-red-500/20' :
+                                        confirmModal.type === 'warning' ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-orange-500/20' :
+                                        confirmModal.type === 'success' ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-emerald-500/20' :
+                                        'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-blue-500/20'
+                                    }`}
+                                >
+                                    <span>{confirmModal.confirmText}</span>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Premium Toast Notification */}
+            {toast.isOpen && (
+                <div className="fixed bottom-6 right-6 z-[110] flex items-center gap-3 bg-slate-900 border border-slate-800 text-white px-5 py-4 rounded-xl shadow-2xl animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-sm">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        toast.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' :
+                        toast.type === 'error' ? 'bg-red-500/20 text-red-400' :
+                        'bg-blue-500/20 text-blue-400'
+                    }`}>
+                        {toast.type === 'success' && (
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                            </svg>
+                        )}
+                        {toast.type === 'error' && (
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        )}
+                        {toast.type === 'info' && (
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        )}
+                    </div>
+                    <div className="flex-1 text-sm font-semibold pr-2 leading-snug">
+                        {toast.message}
+                    </div>
+                    <button 
+                        onClick={() => setToast(prev => ({ ...prev, isOpen: false }))} 
+                        className="text-slate-400 hover:text-white transition-colors p-1"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
